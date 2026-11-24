@@ -1,8 +1,11 @@
 bin/
 obj/
 .vs/
+.idea/
 .env
 __pycache__/
-*.pyc
+*.py[cod]
 TestResults/
-.idea/
+coverage/
+*.user
+*.suo

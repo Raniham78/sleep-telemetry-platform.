@@ -1,35 +1,23 @@
-# Architecture
+# Architecture and design notes
 
-```text
-Device / Simulator
-       |
-       v
-ASP.NET Core Ingestion API
-       |
-       | durable message
-       v
-RabbitMQ queue: telemetry.ingest
-       |
-       v
-Python Analytics Worker
-       |
-       +------> PostgreSQL: telemetry_events
-       |
-       +------> PostgreSQL: hourly_device_summary
-```
+## Request flow
 
-## Reliability considerations
+1. A client sends telemetry to `POST /api/v1/telemetry`.
+2. ASP.NET Core validates the payload and assigns a unique event ID.
+3. The API publishes a persistent message to the durable `telemetry.ingest` RabbitMQ queue and returns `202 Accepted`.
+4. The Python worker consumes the event.
+5. The worker opens a PostgreSQL transaction, inserts the raw event and updates the relevant hourly aggregate.
+6. The worker acknowledges the message only after the transaction commits.
+7. The API's GET endpoint uses EF Core to query persisted raw telemetry.
 
-- Durable queue and persistent messages reduce the chance of losing queued events during broker restarts.
-- Worker acknowledgements happen only after database writes complete.
-- Event IDs and a unique primary key make raw-event insertion idempotent.
-- The raw event insert and aggregate update share a database transaction.
-- The worker reconnects after broker interruptions.
-- The current retry strategy requeues failures indefinitely. Add bounded retries and a dead-letter queue before production use.
-- The API health endpoint is a basic liveness check. Add dependency-aware readiness checks for production.
+## Consistency and idempotency
 
-## Scaling discussion
+The ingestion endpoint is asynchronous. An accepted event is not guaranteed to be immediately queryable. The raw event table has a primary key on `event_id`. The worker updates the hourly aggregate only when the raw insert succeeds, and both operations run in the same transaction. This prevents duplicate deliveries from incrementing the aggregate more than once.
 
-The API and worker can be scaled independently. Multiple worker replicas can consume from the same queue. Before increasing concurrency, verify database capacity, queue depth, processing latency, duplicate handling, and ordering requirements.
+## Operational caveats
 
-No throughput claim is made until load tests are run and results are documented.
+- The demo uses local development credentials in Docker Compose. Do not reuse them outside a local environment.
+- A failed message is currently requeued immediately. A production system should use bounded retries, exponential backoff and a dead-letter queue to avoid poison-message loops.
+- RabbitMQ publisher confirms are not yet enabled. A production API should enable confirms and handle channel/connection failures before returning success.
+- The readiness endpoint checks database connectivity; broker connectivity should be added to the full readiness policy.
+- No scale or throughput claims are made. They require repeatable load tests and operational evidence.

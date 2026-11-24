@@ -4,55 +4,58 @@ services:
     environment:
       POSTGRES_DB: telemetry
       POSTGRES_USER: telemetry
-      POSTGRES_PASSWORD: telemetry_dev
-    ports:
-      - "5432:5432"
+      POSTGRES_PASSWORD: telemetry_dev_password
+    ports: ["5432:5432"]
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./db/init/001_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U telemetry -d telemetry"]
       interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 15
 
   rabbitmq:
     image: rabbitmq:3-management
-    ports:
-      - "5672:5672"
-      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: telemetry
+      RABBITMQ_DEFAULT_PASS: telemetry_dev_password
+    ports: ["5672:5672", "15672:15672"]
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 15
 
   api:
-    build:
-      context: ./src/Telemetry.Api
+    build: ./src/Telemetry.Api
     environment:
       ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Telemetry: Host=postgres;Port=5432;Database=telemetry;Username=telemetry;Password=telemetry_dev_password
       RabbitMq__Host: rabbitmq
-      RabbitMq__User: guest
-      RabbitMq__Password: guest
-    ports:
-      - "8080:8080"
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-
-  analytics-worker:
-    build:
-      context: ./src/Analytics.Worker
-    environment:
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_USER: guest
-      RABBITMQ_PASSWORD: guest
-      DATABASE_URL: postgresql://telemetry:telemetry_dev@postgres:5432/telemetry
+      RabbitMq__User: telemetry
+      RabbitMq__Password: telemetry_dev_password
+    ports: ["8080:8080"]
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+    restart: unless-stopped
+
+  analytics-worker:
+    build: ./src/Analytics.Worker
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: telemetry
+      RABBITMQ_PASSWORD: telemetry_dev_password
+      DATABASE_URL: postgresql://telemetry:telemetry_dev_password@postgres:5432/telemetry
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   postgres_data:
