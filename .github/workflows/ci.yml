@@ -1,0 +1,26 @@
+name: build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  dotnet-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - run: dotnet restore src/Telemetry.Api/Telemetry.Api.csproj
+      - run: dotnet build src/Telemetry.Api/Telemetry.Api.csproj --configuration Release --no-restore
+
+  python-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r src/Analytics.Worker/requirements.txt
+      - run: python -m py_compile src/Analytics.Worker/worker.py
